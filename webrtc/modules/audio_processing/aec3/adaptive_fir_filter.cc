@@ -16,7 +16,7 @@
 #if defined(WEBRTC_HAS_NEON)
 #include <arm_neon.h>
 #endif
-#if defined(WEBRTC_ARCH_X86_FAMILY)
+#if defined(WEBRTC_ARCH_X86_FAMILY) && !defined(WAP_DISABLE_INLINE_SSE)
 #include <emmintrin.h>
 #endif
 #include <math.h>
@@ -68,25 +68,27 @@ void ComputeFrequencyResponse_Neon(
   RTC_DCHECK_EQ(H.size(), H2->capacity());
   for (size_t p = 0; p < num_partitions; ++p) {
     RTC_DCHECK_EQ(kFftLengthBy2Plus1, (*H2)[p].size());
+    auto& H2_p = (*H2)[p];
     for (size_t ch = 0; ch < num_render_channels; ++ch) {
+      const FftData& H_p_ch = H[p][ch];
       for (size_t j = 0; j < kFftLengthBy2; j += 4) {
-        const float32x4_t re = vld1q_f32(&H[p][ch].re[j]);
-        const float32x4_t im = vld1q_f32(&H[p][ch].im[j]);
+        const float32x4_t re = vld1q_f32(&H_p_ch.re[j]);
+        const float32x4_t im = vld1q_f32(&H_p_ch.im[j]);
         float32x4_t H2_new = vmulq_f32(re, re);
         H2_new = vmlaq_f32(H2_new, im, im);
-        float32x4_t H2_p_j = vld1q_f32(&(*H2)[p][j]);
+        float32x4_t H2_p_j = vld1q_f32(&H2_p[j]);
         H2_p_j = vmaxq_f32(H2_p_j, H2_new);
-        vst1q_f32(&(*H2)[p][j], H2_p_j);
+        vst1q_f32(&H2_p[j], H2_p_j);
       }
-      float H2_new = H[p][ch].re[kFftLengthBy2] * H[p][ch].re[kFftLengthBy2] +
-                     H[p][ch].im[kFftLengthBy2] * H[p][ch].im[kFftLengthBy2];
-      (*H2)[p][kFftLengthBy2] = std::max((*H2)[p][kFftLengthBy2], H2_new);
+      float H2_new = H_p_ch.re[kFftLengthBy2] * H_p_ch.re[kFftLengthBy2] +
+                     H_p_ch.im[kFftLengthBy2] * H_p_ch.im[kFftLengthBy2];
+      H2_p[kFftLengthBy2] = std::max(H2_p[kFftLengthBy2], H2_new);
     }
   }
 }
 #endif
 
-#if defined(WEBRTC_ARCH_X86_FAMILY)
+#if defined(WEBRTC_ARCH_X86_FAMILY) && !defined(WAP_DISABLE_INLINE_SSE)
 // Computes and stores the frequency response of the filter.
 void ComputeFrequencyResponse_Sse2(
     size_t num_partitions,
@@ -101,20 +103,22 @@ void ComputeFrequencyResponse_Sse2(
   // constexpr __mmmask8 kMaxMask = static_cast<__mmmask8>(256u);
   for (size_t p = 0; p < num_partitions; ++p) {
     RTC_DCHECK_EQ(kFftLengthBy2Plus1, (*H2)[p].size());
+    auto& H2_p = (*H2)[p];
     for (size_t ch = 0; ch < num_render_channels; ++ch) {
+      const FftData& H_p_ch = H[p][ch];
       for (size_t j = 0; j < kFftLengthBy2; j += 4) {
-        const __m128 re = _mm_loadu_ps(&H[p][ch].re[j]);
+        const __m128 re = _mm_loadu_ps(&H_p_ch.re[j]);
         const __m128 re2 = _mm_mul_ps(re, re);
-        const __m128 im = _mm_loadu_ps(&H[p][ch].im[j]);
+        const __m128 im = _mm_loadu_ps(&H_p_ch.im[j]);
         const __m128 im2 = _mm_mul_ps(im, im);
         const __m128 H2_new = _mm_add_ps(re2, im2);
-        __m128 H2_k_j = _mm_loadu_ps(&(*H2)[p][j]);
+        __m128 H2_k_j = _mm_loadu_ps(&H2_p[j]);
         H2_k_j = _mm_max_ps(H2_k_j, H2_new);
-        _mm_storeu_ps(&(*H2)[p][j], H2_k_j);
+        _mm_storeu_ps(&H2_p[j], H2_k_j);
       }
-      float H2_new = H[p][ch].re[kFftLengthBy2] * H[p][ch].re[kFftLengthBy2] +
-                     H[p][ch].im[kFftLengthBy2] * H[p][ch].im[kFftLengthBy2];
-      (*H2)[p][kFftLengthBy2] = std::max((*H2)[p][kFftLengthBy2], H2_new);
+      float H2_new = H_p_ch.re[kFftLengthBy2] * H_p_ch.re[kFftLengthBy2] +
+                     H_p_ch.im[kFftLengthBy2] * H_p_ch.im[kFftLengthBy2];
+      H2_p[kFftLengthBy2] = std::max(H2_p[kFftLengthBy2], H2_new);
     }
   }
 }
@@ -208,7 +212,7 @@ void AdaptPartitions_Neon(const RenderBuffer& render_buffer,
 }
 #endif
 
-#if defined(WEBRTC_ARCH_X86_FAMILY)
+#if defined(WEBRTC_ARCH_X86_FAMILY) && !defined(WAP_DISABLE_INLINE_SSE)
 // Adapts the filter partitions. (SSE2 variant)
 void AdaptPartitions_Sse2(const RenderBuffer& render_buffer,
                           const FftData& G,
@@ -373,7 +377,7 @@ void ApplyFilter_Neon(const RenderBuffer& render_buffer,
 }
 #endif
 
-#if defined(WEBRTC_ARCH_X86_FAMILY)
+#if defined(WEBRTC_ARCH_X86_FAMILY) && !defined(WAP_DISABLE_INLINE_SSE)
 // Produces the filter output (SSE2 variant).
 void ApplyFilter_Sse2(const RenderBuffer& render_buffer,
                       size_t num_partitions,
@@ -553,9 +557,11 @@ void AdaptiveFirFilter::Filter(const RenderBuffer& render_buffer,
   RTC_DCHECK(S);
   switch (optimization_) {
 #if defined(WEBRTC_ARCH_X86_FAMILY)
+#if !defined(WAP_DISABLE_INLINE_SSE)
     case Aec3Optimization::kSse2:
       aec3::ApplyFilter_Sse2(render_buffer, current_size_partitions_, H_, S);
       break;
+#endif
     case Aec3Optimization::kAvx2:
       aec3::ApplyFilter_Avx2(render_buffer, current_size_partitions_, H_, S);
       break;
@@ -597,9 +603,11 @@ void AdaptiveFirFilter::ComputeFrequencyResponse(
 
   switch (optimization_) {
 #if defined(WEBRTC_ARCH_X86_FAMILY)
+#if !defined(WAP_DISABLE_INLINE_SSE)
     case Aec3Optimization::kSse2:
       aec3::ComputeFrequencyResponse_Sse2(current_size_partitions_, H_, H2);
       break;
+#endif
     case Aec3Optimization::kAvx2:
       aec3::ComputeFrequencyResponse_Avx2(current_size_partitions_, H_, H2);
       break;
@@ -622,10 +630,12 @@ void AdaptiveFirFilter::AdaptAndUpdateSize(const RenderBuffer& render_buffer,
   // Adapt the filter.
   switch (optimization_) {
 #if defined(WEBRTC_ARCH_X86_FAMILY)
+#if !defined(WAP_DISABLE_INLINE_SSE)
     case Aec3Optimization::kSse2:
       aec3::AdaptPartitions_Sse2(render_buffer, G, current_size_partitions_,
                                  &H_);
       break;
+#endif
     case Aec3Optimization::kAvx2:
       aec3::AdaptPartitions_Avx2(render_buffer, G, current_size_partitions_,
                                  &H_);

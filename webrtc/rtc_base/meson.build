@@ -1,5 +1,6 @@
 base_sources = [
   'checks.cc',
+  'containers/flat_tree.cc',
   'event.cc',
   'event_tracer.cc',
   'experiments/field_trial_parser.cc',
@@ -8,15 +9,15 @@ base_sources = [
   'platform_thread.cc',
   'platform_thread_types.cc',
   'race_checker.cc',
+  'random.cc',
   'string_encode.cc',
   'string_to_number.cc',
   'string_utils.cc',
   'strings/string_builder.cc',
-  'synchronization/mutex.cc',
-  'synchronization/rw_lock_wrapper.cc',
-  'synchronization/yield.cc',
+  'synchronization/sequence_checker_internal.cc',
   'synchronization/yield_policy.cc',
   'system/file_wrapper.cc',
+  'system_time.cc',
   'time_utils.cc',
   'zero_memory.cc',
 ]
@@ -24,25 +25,18 @@ base_sources = [
 base_headers = [
   [ '', 'arraysize.h' ],
   [ '', 'checks.h' ],
-  [ '', 'constructor_magic.h' ],
-  [ '', 'deprecation.h' ],
   [ '', 'ref_count.h' ],
+  [ '', 'thread_annotations.h' ],
   [ '', 'type_traits.h' ],
+  [ 'numerics', 'divide_round.h' ],
   [ 'numerics', 'safe_compare.h' ],
+  [ 'numerics', 'safe_conversions.h' ],
+  [ 'numerics', 'safe_conversions_impl.h' ],
   [ 'system', 'file_wrapper.h' ],
   [ 'system', 'inline.h' ],
   [ 'system', 'rtc_export.h' ],
+  [ 'units', 'unit_base.h' ],
 ]
-
-if have_posix
-  base_sources += [
-    'synchronization/rw_lock_posix.cc',
-  ]
-elif have_win
-  base_sources += [
-    'synchronization/rw_lock_win.cc',
-  ]
-endif
 
 foreach h : base_headers
   install_headers(
@@ -64,6 +58,10 @@ elif host_system == 'ios'
       'UIKit',
     ]
   )
+elif host_system == 'android'
+  base_sources += [
+    'system/warn_current_thread_is_deadlocked.cc',
+  ]
 endif
 
 libbase = static_library('libbase',

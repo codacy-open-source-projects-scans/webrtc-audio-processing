@@ -1,14 +1,12 @@
 api_sources = [
   'audio/audio_frame.cc',
+  'audio/audio_processing.cc',
+  'audio/audio_processing_statistics.cc',
   'audio/channel_layout.cc',
   'audio/echo_canceller3_config.cc',
-  'audio_codecs/audio_decoder.cc',
-  'audio_codecs/audio_encoder.cc',
   'rtp_headers.cc',
   'rtp_packet_info.cc',
   'task_queue/task_queue_base.cc',
-  'units/data_rate.cc',
-  'units/data_size.cc',
   'units/frequency.cc',
   'units/time_delta.cc',
   'units/timestamp.cc',
@@ -20,9 +18,15 @@ api_sources = [
 
 api_headers = [
   ['', 'array_view.h'],
+  ['', 'location.h'],
+  ['', 'ref_count.h'],
   ['', 'scoped_refptr.h'],
+  ['audio', 'audio_processing.h'],
+  ['audio', 'audio_processing_statistics.h'],
   ['audio', 'echo_canceller3_config.h'],
   ['audio', 'echo_control.h'],
+  ['task_queue', 'task_queue_base.h'],
+  ['units', 'time_delta.h'],
 ]
 
 foreach h : api_headers

@@ -10,6 +10,16 @@
 # as part of the build stage as there doesn't seem to be significant value to
 # splitting the stages at the moment.
 
+# Create merge request pipelines for open merge requests, branch pipelines
+# otherwise. This allows MRs for new users to run CI, and prevents duplicate
+# pipelines for branches with open MRs.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+
 stages:
   - container
   - build
@@ -19,8 +29,8 @@ variables:
   # CI runs, for example when adding new packages to FDO_DISTRIBUTION_PACKAGES.
   # The tag is an arbitrary string that identifies the exact container
   # contents.
-  BASE_TAG: '2023-05-25.0'
-  FDO_DISTRIBUTION_VERSION: '22.10'
+  BASE_TAG: '2024-12-26.0'
+  FDO_DISTRIBUTION_VERSION: '41'
   FDO_UPSTREAM_REPO: 'pulseaudio/webrtc-audio-processing'
 
 include:
@@ -30,10 +40,10 @@ include:
   # failures, this might be one cause.
   - project: 'freedesktop/ci-templates'
     ref: 'master'
-    file: '/templates/ubuntu.yml'
+    file: '/templates/fedora.yml'
 
 # Common container build template
-.ubuntu-container-build:
+.fedora-container-build:
   variables:
     GIT_STRATEGY: none # no need to pull the whole tree for rebuilding the image
 
@@ -41,23 +51,24 @@ include:
     # Otherwise the changes won't have effect since an old container image will
     # be used.
     FDO_DISTRIBUTION_PACKAGES: >-
+      ca-certificates
       g++
       gcc
       git-core
       cmake
-      libabsl-dev
+      abseil-cpp-devel
       meson
       ninja-build
       pkg-config
       python3-setuptools
 
 # Used to extend both container and build jobs
-.ubuntu-x86_64:
+.fedora-x86_64:
   variables:
     FDO_DISTRIBUTION_TAG: "x86_64-$BASE_TAG"
 
 # Used to extend both container and build jobs
-.ubuntu-aarch64:
+.fedora-aarch64:
   tags:
     - aarch64
   variables:
@@ -65,30 +76,29 @@ include:
 
 build-container-x86_64:
   extends:
-    - .fdo.container-build@ubuntu@x86_64
-    - .ubuntu-container-build
-    - .ubuntu-x86_64
+    - .fdo.container-build@fedora@x86_64
+    - .fedora-container-build
+    - .fedora-x86_64
   stage: container
 
 build-container-aarch64:
   extends:
-    - .fdo.container-build@ubuntu@aarch64
-    - .ubuntu-container-build
-    - .ubuntu-aarch64
+    - .fdo.container-build@fedora@aarch64
+    - .fedora-container-build
+    - .fedora-aarch64
   stage: container
 
 # Common build template
 .build-distro-absl:
   stage: build
   extends:
-    - .fdo.distribution-image@ubuntu
+    - .fdo.distribution-image@fedora
   script:
     - meson setup --wrap-mode=nofallback --prefix=/usr --libdir=lib builddir
     - ninja -C builddir
     - DESTDIR=$PWD/_install ninja install -C builddir
       # Test that the pc files are usable
-    - PKG_CONFIG_PATH=$PWD/_install/usr/lib/pkgconfig pkg-config --cflags --libs webrtc-audio-processing-1
-    - PKG_CONFIG_PATH=$PWD/_install/usr/lib/pkgconfig pkg-config --cflags --libs webrtc-audio-coding-1
+    - PKG_CONFIG_PATH=$PWD/_install/usr/lib/pkgconfig pkg-config --cflags --libs webrtc-audio-processing-2
   artifacts:
     expire_in: '5 days'
     when: 'always'
@@ -98,14 +108,13 @@ build-container-aarch64:
 .build-vendored-absl:
   stage: build
   extends:
-    - .fdo.distribution-image@ubuntu
+    - .fdo.distribution-image@fedora
   script:
     - meson setup --force-fallback-for=abseil-cpp --prefix=/usr --libdir=lib builddir
     - ninja -C builddir
     - DESTDIR=$PWD/_install ninja install -C builddir
       # Test that the pc files are usable
-    - PKG_CONFIG_LIBDIR=$PWD/_install/usr/lib/pkgconfig pkg-config --cflags --libs webrtc-audio-processing-1
-    - PKG_CONFIG_LIBDIR=$PWD/_install/usr/lib/pkgconfig pkg-config --cflags --libs webrtc-audio-coding-1
+    - PKG_CONFIG_LIBDIR=$PWD/_install/usr/lib/pkgconfig pkg-config --cflags --libs webrtc-audio-processing-2
   artifacts:
     expire_in: '5 days'
     when: 'always'
@@ -115,22 +124,22 @@ build-container-aarch64:
 build-distro-absl-x86_64:
   extends:
     - .build-distro-absl
-    - .ubuntu-x86_64
+    - .fedora-x86_64
 
 build-vendored-absl-x86_64:
   extends:
     - .build-vendored-absl
-    - .ubuntu-x86_64
+    - .fedora-x86_64
 
 build-distro-absl-aarch64:
   extends:
     - .build-distro-absl
-    - .ubuntu-aarch64
+    - .fedora-aarch64
 
 build-vendored-absl-aarch64:
   extends:
     - .build-vendored-absl
-    - .ubuntu-aarch64
+    - .fedora-aarch64
 
 # Update from:
 # https://gitlab.freedesktop.org/gstreamer/gstreamer/-/blob/main/.gitlab-ci.yml
@@ -162,7 +171,7 @@ vs2019 amd64:
     # Environment variables substitutions is done by PowerShell before calling
     # cmd.exe, that's why we use $env:FOO instead of %FOO%
     - cmd.exe /C "C:\BuildTools\Common7\Tools\VsDevCmd.bat -host_arch=amd64 -arch=$env:ARCH -app_platform=$env:PLAT &&
-        meson setup builddir &&
+        meson setup builddir -Dcpp_std=c++20 &&
         meson compile --verbose -C builddir"
 
 # Update from:
@@ -222,14 +231,14 @@ ios arm64:
       endian = 'little'
 
       [properties]
-      c_args           = ['-arch', 'arm64', '--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)', '-miphoneos-version-min=8.0']
-      objc_args        = ['-arch', 'arm64', '--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)', '-miphoneos-version-min=8.0']
-      cpp_args         = ['-arch', 'arm64', '--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)', '-miphoneos-version-min=8.0']
-      objcpp_args      = ['-arch', 'arm64', '--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)', '-miphoneos-version-min=8.0']
-      c_link_args      = ['-arch', 'arm64', '--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)', '-miphoneos-version-min=8.0']
-      objc_link_args   = ['-arch', 'arm64', '--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)', '-miphoneos-version-min=8.0']
-      cpp_link_args    = ['-arch', 'arm64', '--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)', '-miphoneos-version-min=8.0']
-      objcpp_link_args = ['-arch', 'arm64', '--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)', '-miphoneos-version-min=8.0']
+      c_args           = ['-arch', 'arm64', '--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)', '-miphoneos-version-min=11.0']
+      objc_args        = ['-arch', 'arm64', '--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)', '-miphoneos-version-min=11.0']
+      cpp_args         = ['-arch', 'arm64', '--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)', '-miphoneos-version-min=11.0']
+      objcpp_args      = ['-arch', 'arm64', '--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)', '-miphoneos-version-min=11.0']
+      c_link_args      = ['-arch', 'arm64', '--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)', '-miphoneos-version-min=11.0']
+      objc_link_args   = ['-arch', 'arm64', '--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)', '-miphoneos-version-min=11.0']
+      cpp_link_args    = ['-arch', 'arm64', '--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)', '-miphoneos-version-min=11.0']
+      objcpp_link_args = ['-arch', 'arm64', '--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)', '-miphoneos-version-min=11.0']
 
       [binaries]
       ar        = '$(xcrun --find --sdk iphoneos ar)'

@@ -4,8 +4,6 @@ common_audio_sources = [
   'channel_buffer.cc',
   'fir_filter_c.cc',
   'fir_filter_factory.cc',
-  'real_fourier.cc',
-  'real_fourier_ooura.cc',
   'resampler/push_resampler.cc',
   'resampler/push_sinc_resampler.cc',
   'resampler/resampler.cc',
@@ -55,9 +53,6 @@ common_audio_sources = [
   'vad/vad_gmm.c',
   'vad/vad_sp.c',
   'vad/webrtc_vad.c',
-  'wav_file.cc',
-  'wav_header.cc',
-  'window_generator.cc',
 ]
 
 arch_libs = []
@@ -83,8 +78,8 @@ if have_x86
       ],
       dependencies: common_deps,
       include_directories: webrtc_inc,
-      c_args: common_cflags + ['-mavx2', '-mfma'],
-      cpp_args: common_cxxflags + ['-mavx2', '-mfma']
+      c_args: common_cflags + avx_flags,
+      cpp_args: common_cxxflags + avx_flags
     )
   ]
 endif
@@ -99,7 +94,7 @@ if have_mips
     'signal_processing/min_max_operations_mips.c',
     'signal_processing/resample_by_2_mips.c',
     'signal_processing/vector_scaling_operations_mips.c',
-    'third_party/ooura/fft_size_128/ooura_fft_mips.c',
+    'third_party/ooura/fft_size_128/ooura_fft_mips.cc',
     'third_party/spl_sqrt_floor/spl_sqrt_floor_mips.c',
   ]
 endif
@@ -117,7 +112,7 @@ if have_armv7
   ]
 endif
 
-if have_neon
+if neon_opt.enabled()
   common_audio_sources += [
     'fir_filter_neon.cc',
     'resampler/sinc_resampler_neon.cc',

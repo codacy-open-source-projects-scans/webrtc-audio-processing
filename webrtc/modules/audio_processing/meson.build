@@ -17,6 +17,7 @@ webrtc_audio_processing_sources = [
   'aec3/clockdrift_detector.cc',
   'aec3/coarse_filter_update_gain.cc',
   'aec3/comfort_noise_generator.cc',
+  'aec3/config_selector.cc',
   'aec3/decimator.cc',
   'aec3/dominant_nearend_detector.cc',
   'aec3/downsampled_render_buffer.cc',
@@ -35,6 +36,7 @@ webrtc_audio_processing_sources = [
   'aec3/matched_filter.cc',
   'aec3/matched_filter_lag_aggregator.cc',
   'aec3/moving_average.cc',
+  'aec3/multi_channel_content_detector.cc',
   'aec3/refined_filter_update_gain.cc',
   'aec3/render_buffer.cc',
   'aec3/render_delay_buffer.cc',
@@ -58,7 +60,6 @@ webrtc_audio_processing_sources = [
   'aec3/suppression_gain.cc',
   'aec3/transparent_mode.cc',
   'aecm/aecm_core.cc',
-  'aecm/aecm_core_c.cc',
   'aecm/echo_control_mobile.cc',
   'agc/agc.cc',
   'agc/agc_manager_direct.cc',
@@ -66,37 +67,42 @@ webrtc_audio_processing_sources = [
   'agc/legacy/digital_agc.cc',
   'agc/loudness_histogram.cc',
   'agc/utility.cc',
-  'agc2/adaptive_agc.cc',
-  'agc2/adaptive_digital_gain_applier.cc',
-  'agc2/adaptive_mode_level_estimator_agc.cc',
-  'agc2/adaptive_mode_level_estimator.cc',
+  'agc2/adaptive_digital_gain_controller.cc',
   'agc2/agc2_testing_common.cc',
   'agc2/biquad_filter.cc',
+  'agc2/clipping_predictor.cc',
+  'agc2/clipping_predictor_level_buffer.cc',
   'agc2/compute_interpolated_gain_curve.cc',
-  'agc2/down_sampler.cc',
+  'agc2/cpu_features.cc',
   'agc2/fixed_digital_level_estimator.cc',
   'agc2/gain_applier.cc',
+  'agc2/input_volume_controller.cc',
+  'agc2/input_volume_stats_reporter.cc',
   'agc2/interpolated_gain_curve.cc',
   'agc2/limiter.cc',
   'agc2/limiter_db_gain_curve.cc',
   'agc2/noise_level_estimator.cc',
-  'agc2/noise_spectrum_estimator.cc',
   'agc2/rnn_vad/auto_correlation.cc',
-  'agc2/rnn_vad/common.cc',
   'agc2/rnn_vad/features_extraction.cc',
   'agc2/rnn_vad/lp_residual.cc',
   'agc2/rnn_vad/pitch_search.cc',
   'agc2/rnn_vad/pitch_search_internal.cc',
   'agc2/rnn_vad/rnn.cc',
+  'agc2/rnn_vad/rnn_fc.cc',
+  'agc2/rnn_vad/rnn_gru.cc',
   'agc2/rnn_vad/spectral_features.cc',
   'agc2/rnn_vad/spectral_features_internal.cc',
   'agc2/saturation_protector.cc',
-  'agc2/signal_classifier.cc',
-  'agc2/vad_with_level.cc',
+  'agc2/saturation_protector_buffer.cc',
+  'agc2/speech_level_estimator.cc',
+  'agc2/speech_probability_buffer.cc',
+  'agc2/vad_wrapper.cc',
   'agc2/vector_float_frame.cc',
   'audio_buffer.cc',
   'audio_processing_builder_impl.cc',
   'audio_processing_impl.cc',
+  'capture_levels_adjuster/audio_samples_scaler.cc',
+  'capture_levels_adjuster/capture_levels_adjuster.cc',
   'echo_control_mobile_impl.cc',
   'echo_detector/circular_buffer.cc',
   'echo_detector/mean_variance_estimator.cc',
@@ -107,10 +113,6 @@ webrtc_audio_processing_sources = [
   'high_pass_filter.cc',
   'include/aec_dump.cc',
   'include/audio_frame_proxies.cc',
-  'include/audio_processing.cc',
-  'include/audio_processing_statistics.cc',
-  'include/config.cc',
-  'level_estimator.cc',
   'logging/apm_data_dumper.cc',
   'ns/fast_math.cc',
   'ns/histograms.cc',
@@ -125,18 +127,10 @@ webrtc_audio_processing_sources = [
   'ns/speech_probability_estimator.cc',
   'ns/suppression_params.cc',
   'ns/wiener_filter.cc',
-  'optionally_built_submodule_creators.cc',
   'residual_echo_detector.cc',
   'rms_level.cc',
   'splitting_filter.cc',
   'three_band_filter_bank.cc',
-  'transient/file_utils.cc',
-  'transient/moving_moments.cc',
-  'transient/transient_detector.cc',
-  'transient/transient_suppressor_impl.cc',
-  'transient/wpd_node.cc',
-  'transient/wpd_tree.cc',
-  'typing_detection.cc',
   'utility/cascaded_biquad_filter.cc',
   'utility/delay_estimator.cc',
   'utility/delay_estimator_wrapper.cc',
@@ -149,13 +143,11 @@ webrtc_audio_processing_sources = [
   'vad/vad_audio_proc.cc',
   'vad/vad_circular_buffer.cc',
   'vad/voice_activity_detector.cc',
-  'voice_detection.cc',
 ]
 
 webrtc_audio_processing_include_headers = [
   'include/audio_processing.h',
   'include/audio_processing_statistics.h',
-  'include/config.h',
 ]
 
 extra_libs = []
@@ -168,11 +160,12 @@ if have_x86
         'aec3/fft_data_avx2.cc',
         'aec3/matched_filter_avx2.cc',
         'aec3/vector_math_avx2.cc',
+        'agc2/rnn_vad/vector_math_avx2.cc',
       ],
       dependencies: common_deps,
       include_directories: webrtc_inc,
-      c_args: common_cflags + apm_flags + ['-mavx2', '-mfma'],
-      cpp_args: common_cxxflags + apm_flags + ['-mavx2', '-mfma']
+      c_args: common_cflags + apm_flags + avx_flags,
+      cpp_args: common_cxxflags + apm_flags + avx_flags
     )
   ]
 endif
@@ -181,9 +174,13 @@ if have_mips
   webrtc_audio_processing_sources += [
     'aecm/aecm_core_mips.cc',
   ]
+else
+  webrtc_audio_processing_sources += [
+    'aecm/aecm_core_c.cc',
+  ]
 endif
 
-if have_neon
+if neon_opt.enabled()
   webrtc_audio_processing_sources += [
     'aecm/aecm_core_neon.cc',
   ]
@@ -198,9 +195,9 @@ libwebrtc_audio_processing = library(apm_project_name,
     dependencies: [
       base_dep,
       api_dep,
-      isac_vad_dep,
       system_wrappers_dep,
       common_audio_dep,
+      isac_vad_dep,
       pffft_dep,
       rnnoise_dep,
     ] + common_deps,

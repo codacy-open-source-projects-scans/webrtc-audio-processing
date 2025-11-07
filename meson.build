@@ -1,5 +1,5 @@
 project('webrtc-audio-processing', 'c', 'cpp',
-  version : '1.3',
+  version : '2.1',
   meson_version : '>= 0.63',
   default_options : [ 'warning_level=1',
                       'buildtype=debugoptimized',
@@ -20,10 +20,6 @@ minor_version = version_split[1]
 apm_major_version = major_version
 apm_minor_version = minor_version
 apm_project_name = 'webrtc-audio-processing-' + apm_major_version
-
-ac_major_version = major_version
-ac_minor_version = minor_version
-ac_project_name = 'webrtc-audio-coding-' + ac_major_version
 
 include_subdir = apm_project_name
 
@@ -53,9 +49,10 @@ have_win = false
 # if pkg-config is not found, which is really the most reliable way of building
 # abseil due to strict C++ standard match requirements.
 absl_dep = [
-  dependency('absl_base', default_options: ['cpp_std=c++17']),
+  dependency('absl_base', default_options: ['cpp_std=c++17'], version: '>=20240722'),
   dependency('absl_flags'),
   dependency('absl_strings'),
+  dependency('absl_numeric'),
   dependency('absl_synchronization'),
   dependency('absl_bad_optional_access'),
 ]
@@ -66,6 +63,7 @@ if absl_dep[0].type_name() == 'internal'
     absl_subproj.get_variable('absl_base_headers'),
     absl_subproj.get_variable('absl_flags_headers'),
     absl_subproj.get_variable('absl_strings_headers'),
+    absl_subproj.get_variable('absl_numeric_headers'),
     absl_subproj.get_variable('absl_synchronization_headers'),
     absl_subproj.get_variable('absl_types_headers'),
   ]
@@ -87,8 +85,13 @@ elif host_system == 'android'
   os_deps += [dependency('gnustl', required : get_option('gnustl'))]
   have_posix = true
 elif host_system == 'linux'
-  os_cflags += ['-DWEBRTC_LINUX', '-DWEBRTC_THREAD_RR']
+  os_cflags += ['-DWEBRTC_LINUX']
   os_deps += [cc.find_library('rt', required : false)]
+  os_deps += [dependency('threads')]
+  have_posix = true
+elif (host_system == 'dragonfly' or host_system == 'freebsd' or
+      host_system == 'netbsd' or host_system == 'openbsd')
+  os_cflags += ['-DWEBRTC_BSD']
   os_deps += [dependency('threads')]
   have_posix = true
 elif host_system == 'windows'
@@ -110,10 +113,12 @@ endif
 arch_cflags = []
 have_arm = false
 have_armv7 = false
+have_arm64 = false
 have_neon = false
 have_mips = false
 have_mips64 = false
 have_x86 = false
+have_inline_sse = false
 have_avx2 = false
 if host_machine.cpu_family() == 'arm'
   if cc.compiles('''#ifndef __ARM_ARCH_ISA_ARM
@@ -128,49 +133,64 @@ if host_machine.cpu_family() == 'arm'
     have_armv7 = true
     arch_cflags += ['-DWEBRTC_ARCH_ARM_V7']
   endif
+  if cc.compiles('#include <arm_neon.h>', args : '-mfpu=neon')
+    have_neon = true
+  endif
 endif
-if cc.compiles('''#ifndef __aarch64__
-#error no aarch64 arch
-#endif''')
+if host_machine.cpu_family() == 'aarch64'
+  have_arm64 = true
   have_neon = true
-  arch_cflags += ['-DWEBRTC_ARCH_ARM64', '-DWEBRTC_HAS_NEON']
+  arch_cflags += ['-DWEBRTC_ARCH_ARM64']
 endif
 if ['mips', 'mips64'].contains(host_machine.cpu_family())
   have_mips = true
-  arch_cflags += ['WEBRTC_ARCH_MIPS_FAMILY']
 endif
 if host_machine.cpu_family() == 'mips64'
   have_mips64 = true
 endif
 if ['x86', 'x86_64'].contains(host_machine.cpu_family())
   have_x86 = true
-  # This is unconditionally enabled for now, actual usage is determined by
-  # runtime CPU detection, so we're just assuming the compiler supports avx2
+  # AVX2 support is unconditionally available, since all the code (compiled
+  # with -mavx2) is in separate files from runtime detection (which should not
+  # be compiled with SIMD flags for cases where the CPU does not support it).
+  # Unfortunately, a bunch of SSE code is inline with the runtime detection,
+  # and we can't support that on systems that don't support SSE.
   have_avx2 = true
   arch_cflags += ['-DWEBRTC_ENABLE_AVX2']
+  if get_option('inline-sse')
+    have_inline_sse = true
+  else
+    have_inline_sse = false
+    arch_cflags += ['-DWAP_DISABLE_INLINE_SSE']
+  endif
 endif
 
-neon_opt = get_option('neon')
-if neon_opt != 'no' and not have_neon
-  if neon_opt != 'runtime'
-    if cc.compiles('#include <arm_neon.h>', args : '-mfpu=neon')
-      arch_cflags += ['-mfpu=neon', '-DWEBRTC_HAS_NEON']
-      have_neon = true
-    endif
-  else
-    arch_cflags += ['-DWEBRTC_DETECT_NEON', '-mfpu=neon']
-    have_neon = true
+neon_opt = get_option('neon').require(have_neon)
+
+if neon_opt.enabled()
+  arch_cflags += ['-DWEBRTC_HAS_NEON']
+  if not have_arm64
+    arch_cflags += ['-mfpu=neon']
   endif
 endif
 
 common_cflags = [
   '-DWEBRTC_LIBRARY_IMPL',
   '-DWEBRTC_ENABLE_SYMBOL_EXPORT',
+  # avoid windows.h/winsock2.h conflicts
+  '-D_WINSOCKAPI_',
   '-DNDEBUG'
   ] + platform_cflags + os_cflags + arch_cflags
 common_cxxflags = common_cflags
 common_deps = os_deps + [absl_dep]
 webrtc_inc = include_directories('.')
+
+# FIXME: use the unstable-simd module instead
+if cc.get_define('_MSC_VER') != ''
+  avx_flags = ['/arch:AVX2']
+else
+  avx_flags = ['-mavx2', '-mfma']
+endif
 
 subdir('webrtc')
 
@@ -194,18 +214,4 @@ audio_processing_dep = declare_dependency(
 
 meson.override_dependency(apm_project_name, audio_processing_dep)
 
-pkgconfig.generate(
-  libwebrtc_audio_coding,
-  description: 'WebRTC Audio Coding library',
-  subdirs: include_subdir,
-  extra_cflags: [
-    '-DWEBRTC_LIBRARY_IMPL',
-  ] + platform_cflags,
-)
-
-audio_coding_dep = declare_dependency(
-  link_with: libwebrtc_audio_coding,
-  include_directories: [webrtc_inc]
-)
-
-meson.override_dependency(ac_project_name, audio_coding_dep)
+subdir('examples')
